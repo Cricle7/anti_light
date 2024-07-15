@@ -207,6 +207,46 @@ void saveImage(const char* filename, const uint8_t* image, int width, int height
     stbi_write_jpg(filename, width, height, 1, image, 100);
 }
 
+void gaussianBlur(const uint8_t* src, uint8_t* dst, int width, int height, int ksize) {
+    int pad = ksize / 2;
+    std::vector<uint8_t> padded((width + 2 * pad) * (height + 2 * pad), 0);
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            padded[(y + pad) * (width + 2 * pad) + (x + pad)] = src[y * width + x];
+        }
+    }
+
+    for (int y = pad; y < height + pad; ++y) {
+        for (int x = pad; x < width + pad; ++x) {
+            int sum = 0;
+            for (int ky = -pad; ky <= pad; ++ky) {
+                for (int kx = -pad; kx <= pad; ++kx) {
+                    sum += padded[(y + ky) * (width + 2 * pad) + (x + kx)];
+                }
+            }
+            dst[(y - pad) * width + (x - pad)] = sum / (ksize * ksize);
+        }
+    }
+}
+
+// 差合比处理函数
+void differenceOfGaussians(const uint8_t* src, uint8_t* dst, int width, int height, int ksize1, int ksize2) {
+    std::vector<uint8_t> blur1(width * height, 0);
+    std::vector<uint8_t> blur2(width * height, 0);
+
+    // 进行两次不同尺度的高斯模糊
+    gaussianBlur(src, blur1.data(), width, height, ksize1);
+    gaussianBlur(src, blur2.data(), width, height, ksize2);
+
+    // 计算两个模糊图像的差值
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            int diff = static_cast<int>(blur1[y * width + x]) - static_cast<int>(blur2[y * width + x]);
+            dst[y * width + x] = static_cast<uint8_t>(std::clamp(diff + 128, 0, 255)); // 偏移到中间灰度
+        }
+    }
+}
+
 int main() {
     uint8_t image[w * h];
     generate(image, w, h);
@@ -214,18 +254,21 @@ int main() {
     uint8_t* filtered_img = new uint8_t[w * h];
     getBackground(image, filtered_img, w, h, 4);
 
-    saveImage("/home/circle7/Project/digital_image_processing/get_background/original.jpg", image, w, h);
-    saveImage("/home/circle7/Project/digital_image_processing/get_background/filtered.jpg", filtered_img, w, h);
+    saveImage("/home/circle7/Project/digital_image_processing/anti_light/original.jpg", image, w, h);
+    saveImage("/home/circle7/Project/digital_image_processing/anti_light/filtered.jpg", filtered_img, w, h);
 
     // 进行光照补偿
     illuminationCompensation(image, filtered_img, w, h);
-
+    
     // 保存补偿后的图像
-    saveImage("/home/circle7/Project/digital_image_processing/get_background/compensated.jpg", image, w, h);
+    saveImage("/home/circle7/Project/digital_image_processing/anti_light/compensated.jpg", image, w, h);
+    uint8_t result[w * h];
+    differenceOfGaussians(image, result, w, h, 3, 5);
+    saveImage("/home/circle7/Project/digital_image_processing/anti_light/difference.jpg", result, w, h);
 
     uint8_t denoised_image[w * h];
     nonLocalMeansDenoising(image, denoised_image, w, h, 7, 3, 10.0f);
-    saveImage("/home/circle7/Project/digital_image_processing/get_background/denoised.jpg", denoised_image, w, h);
+    saveImage("/home/circle7/Project/digital_image_processing/anti_light/denoised.jpg", denoised_image, w, h);
     delete[] filtered_img;
     return 0;
 }
